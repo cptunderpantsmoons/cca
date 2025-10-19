@@ -11,7 +11,7 @@ const Header: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a4 4 0 00-4-4H3V9h2a4 4 0 004-4V3l7 7-7 7z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17v-2a4 4 0 014-4h2V9h-2a4 4 0 01-4-4V3l7 7-7 7z" />
              </svg>
-            <span className="text-xl font-bold ml-3 text-white">AI Financial Analyzer</span>
+            <span className="text-xl font-bold ml-3 text-white">AetherMind</span>
           </div>
         </div>
       </div>
