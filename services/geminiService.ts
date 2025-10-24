@@ -385,32 +385,82 @@ export async function generateFinancialReport(file2024: File, file2025: File, co
   }
 }
 
+const formatCurrency = (value: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
+
+function generateErrorCorrectionInstructions(errors: VerificationResult, previousReport: ReportData): string {
+    const failedChecks = errors.checks.filter(c => !c.passed);
+    if (failedChecks.length === 0) {
+        return "No errors found.";
+    }
+
+    const instructions = failedChecks.map(check => {
+        const yearMatch = check.name.match(/\((2024|2025)\)/);
+        const year = yearMatch ? yearMatch[1] : 'the relevant year';
+        const yearSuffix = year === '2025' ? 'amount2025' : 'amount2024' as 'amount2025' | 'amount2024';
+
+        if (check.name.includes('Balance Sheet Equation')) {
+            const reportedAssets = previousReport.balanceSheet.totalAssets[yearSuffix];
+            const reportedLiabilities = previousReport.balanceSheet.totalLiabilities[yearSuffix];
+            const reportedEquity = previousReport.balanceSheet.totalEquity[yearSuffix];
+            
+            const calculatedSum = reportedLiabilities + reportedEquity;
+            const discrepancy = reportedAssets - calculatedSum;
+
+            return `- **${check.name}:** The balance sheet for ${year} does not balance. Assets of ${formatCurrency(reportedAssets)} do not equal Liabilities (${formatCurrency(reportedLiabilities)}) + Equity (${formatCurrency(reportedEquity)}). The discrepancy is ${formatCurrency(discrepancy)}.
+  **Action:** You MUST correct this. The primary rule is **Assets = Liabilities + Equity**. First, recalculate all totals from their constituent parts.
+  1.  Recalculate \`balanceSheet.totalAssets.${yearSuffix}\` by summing all items in \`balanceSheet.currentAssets\` and \`balanceSheet.nonCurrentAssets\` for that year.
+  2.  Recalculate \`balanceSheet.totalLiabilities.${yearSuffix}\` by summing all items in \`balanceSheet.currentLiabilities\` and \`balanceSheet.nonCurrentLiabilities\` for that year.
+  3.  After recalculating, if the equation is still unbalanced, you MUST adjust an item within the \`balanceSheet.equity\` array (typically 'Retained Earnings') to force the equation to balance. The new value for the adjusted equity item should be: (New Total Assets) - (New Total Liabilities) - (Sum of other equity items).
+  4.  Finally, update \`balanceSheet.totalEquity.${yearSuffix}\` to be the sum of all items in the now-corrected \`equity\` array.`;
+        }
+        if (check.name.includes('Income Statement Integrity')) {
+             const netProfit = previousReport.incomeStatement.netProfit[yearSuffix];
+             const totalRevenue = previousReport.incomeStatement.revenue.reduce((sum, item) => sum + item[yearSuffix], 0);
+             const totalExpenses = previousReport.incomeStatement.expenses.reduce((sum, item) => sum + item[yearSuffix], 0);
+             const calculatedNetProfit = totalRevenue - totalExpenses;
+
+            return `- **${check.name}:** The income statement for ${year} is incorrect. The reported 'netProfit' is ${formatCurrency(netProfit)}, but Revenue (${formatCurrency(totalRevenue)}) minus Expenses (${formatCurrency(totalExpenses)}) calculates to ${formatCurrency(calculatedNetProfit)}.
+  **Action:** You MUST update the \`incomeStatement.netProfit.${yearSuffix}\` value to be the correct calculated value of ${calculatedNetProfit}.`;
+        }
+        if (check.name.includes('Cash Flow Integrity')) {
+            const netChangeInCash = previousReport.cashFlowStatement.netChangeInCash[yearSuffix];
+            const operating = previousReport.cashFlowStatement.operatingActivities.reduce((sum, item) => sum + item[yearSuffix], 0);
+            const investing = previousReport.cashFlowStatement.investingActivities.reduce((sum, item) => sum + item[yearSuffix], 0);
+            const financing = previousReport.cashFlowStatement.financingActivities.reduce((sum, item) => sum + item[yearSuffix], 0);
+            const calculatedNetChange = operating + investing + financing;
+
+            return `- **${check.name}:** The cash flow statement for ${year} is incorrect. The reported 'netChangeInCash' is ${formatCurrency(netChangeInCash)}, but the sum of all activities calculates to ${formatCurrency(calculatedNetChange)}.
+  **Action:** You MUST update the \`cashFlowStatement.netChangeInCash.${yearSuffix}\` value to be the correct calculated value of ${calculatedNetChange}.`;
+        }
+        return `- **${check.name}:** An unspecified error occurred. Please review and correct. Discrepancy: ${formatCurrency(check.discrepancy)}.`;
+    }).join('\n\n');
+
+    return instructions;
+}
+
 export async function fixFinancialReport(
     previousReport: ReportData,
     verificationErrors: VerificationResult,
     config: ApiConfig
 ): Promise<ReportData> {
+    const correctionInstructions = generateErrorCorrectionInstructions(verificationErrors, previousReport);
     const correctionPrompt = `
     You are a meticulous and expert senior accountant acting as a Certified Public Accountant (CPA).
-    I am providing you with a financial report you previously generated. It has failed a mathematical verification check.
+    The financial report JSON you previously generated has failed a mathematical verification check. Your task is to correct it by precisely following the instructions below.
 
-    Your task is to analyze the provided report and the verification errors, correct ONLY the necessary figures to resolve the discrepancies, and output the entire, corrected report as a single JSON object.
-
-    **CRITICAL INSTRUCTIONS:**
-    1.  **Analyze the Errors:** The 'verificationCertificate' section below details the exact calculations that failed. For example, a discrepancy in the 'Balance Sheet Equation' means Assets != Liabilities + Equity.
-    2.  **Targeted Corrections:** You MUST only change the minimum number of values necessary to make the report mathematically sound. Adjust summary totals or their constituent line items to make the equations balance. Do not regenerate the entire report from scratch or change the summary text, KPIs, or notes unless absolutely necessary to fix a calculation.
-    3.  **Maintain Structure:** The output must be the complete JSON report, strictly adhering to the original schema. Do not add any explanatory text, markdown, or code block syntax before or after the JSON.
-    4.  **Preserve Correct Data:** Do not change any numbers or text in sections that were not identified as erroneous.
-
-    Here is the financial report that needs correction:
+    **FINANCIAL REPORT TO BE CORRECTED:**
     \`\`\`json
     ${JSON.stringify(previousReport, null, 2)}
     \`\`\`
 
-    Here is the verification certificate detailing the errors. Please fix them:
-    \`\`\`json
-    ${JSON.stringify(verificationErrors.checks.filter(c => !c.passed), null, 2)}
-    \`\`\`
+    **REQUIRED CORRECTIONS & ACTIONS:**
+    ${correctionInstructions}
+
+    **FINAL INSTRUCTIONS:**
+    1.  You MUST implement all of the corrective "Actions" described above.
+    2.  The output MUST be the complete, corrected JSON report, strictly adhering to the original schema.
+    3.  Do NOT add any explanatory text, markdown, or code block syntax before or after the JSON.
+    4.  Do NOT change any data (text, numbers, KPIs, notes, etc.) that is not directly part of a corrective action. Your goal is a minimal, targeted fix.
 
     Now, provide the corrected and complete JSON object.
     `;

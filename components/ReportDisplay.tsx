@@ -3,6 +3,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import type { ReportData, VerificationResult } from '../types';
 import { generateAudioSummary, generateOpenRouterAudioSummary } from '../services/geminiService';
+import { generateAASBPdf } from '../services/pdfGenerator';
 import KPICard from './KPICard';
 import ComparisonChart from './ComparisonChart';
 import ComparisonTable from './ComparisonTable';
@@ -82,6 +83,7 @@ const NotesSection: React.FC<{ notes: any[] | undefined, title: string }> = ({ n
 const ReportDisplay: React.FC<ReportDisplayProps> = ({ data, verification, onReset, apiConfig }) => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [isGeneratingAASBPdf, setIsGeneratingAASBPdf] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'report' | 'verification'>('report');
@@ -116,6 +118,20 @@ const ReportDisplay: React.FC<ReportDisplayProps> = ({ data, verification, onRes
             if (wasEditing) setIsEditing(true);
         });
     }, 100);
+  };
+
+  const handleDownloadAASBPdf = async () => {
+    setIsGeneratingAASBPdf(true);
+    try {
+      // Use a timeout to allow the UI to update to the loading state before the blocking PDF generation begins
+      await new Promise(resolve => setTimeout(resolve, 50));
+      generateAASBPdf(data);
+    } catch (e) {
+      console.error("Failed to generate AASB PDF", e);
+      // You could set an error state here to show a message to the user
+    } finally {
+      setIsGeneratingAASBPdf(false);
+    }
   };
 
   const handleDownloadAudio = async () => {
@@ -214,6 +230,25 @@ const ReportDisplay: React.FC<ReportDisplayProps> = ({ data, verification, onRes
                         >
                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                             Download Report PDF
+                        </button>
+                         <button
+                            onClick={handleDownloadAASBPdf}
+                            disabled={isGeneratingAASBPdf}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 disabled:bg-indigo-900/50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {isGeneratingAASBPdf ? (
+                                <>
+                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    Generating...
+                                </>
+                            ) : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                                    </svg>
+                                    Download AASB PDF (2025)
+                                </>
+                            )}
                         </button>
                     </>
                 )}
